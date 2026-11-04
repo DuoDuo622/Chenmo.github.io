@@ -6,7 +6,9 @@
   <title>陈默 · 前端工程师｜个人作品集</title>
   <meta name="description" content="陈默，5 年前端开发经验，专注 Web 性能优化与无障碍体验。这里是我的作品集。">
   
-  <!-- 内联 CSS 样式 -->
+  <!-- 关键修复：提前标记 JS 可用，避免 JS 失败时内容永远隐藏 -->
+  <script>document.documentElement.classList.add('js');</script>
+
   <style>
     /* ========== tokens.css ========== */
     :root {
@@ -198,9 +200,9 @@
     .project-modal__tags { display: flex; gap: 8px; margin-bottom: 24px; padding: 0; list-style: none; flex-wrap: wrap; }
     .project-modal__desc { color: var(--c-muted); line-height: 1.7; margin-bottom: 32px; }
 
-    /* 动画 */
-    .reveal { opacity: 0; transform: translateY(20px); transition: opacity .6s ease-out, transform .6s ease-out; }
-    .reveal.is-visible { opacity: 1; transform: none; }
+    /* 修复动画：仅在 JS 加载成功时才隐藏，防止 JS 失效导致白屏 */
+    .js .reveal { opacity: 0; transform: translateY(20px); transition: opacity .6s ease-out, transform .6s ease-out; }
+    .js .reveal.is-visible { opacity: 1; transform: none; }
   </style>
 </head>
 
@@ -416,19 +418,24 @@
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       // 1. 年份更新
-      document.getElementById('year').textContent = new Date().getFullYear();
+      const yearEl = document.getElementById('year');
+      if (yearEl) yearEl.textContent = new Date().getFullYear();
 
       // 2. 主题切换
       const themeBtn = document.querySelector('[data-theme-toggle]');
       const root = document.documentElement;
-      const currentTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      let currentTheme = 'light';
+      try {
+        currentTheme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      } catch (e) {}
+      
       root.setAttribute('data-theme', currentTheme);
       if (themeBtn) {
         themeBtn.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
         themeBtn.addEventListener('click', () => {
           const newTheme = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
           root.setAttribute('data-theme', newTheme);
-          localStorage.setItem('theme', newTheme);
+          try { localStorage.setItem('theme', newTheme); } catch (e) {}
           themeBtn.textContent = newTheme === 'dark' ? '☀️' : '🌙';
         });
       }
@@ -453,22 +460,27 @@
       // 4. 滚动高亮
       const sections = document.querySelectorAll('section[id]');
       const navLinks = document.querySelectorAll('.nav-bar__link');
-      window.addEventListener('scroll', () => {
-        let current = '';
-        sections.forEach(section => {
-          const sectionTop = section.offsetTop;
-          if (scrollY >= sectionTop - 100) current = section.getAttribute('id');
+      if (sections.length > 0 && navLinks.length > 0) {
+        window.addEventListener('scroll', () => {
+          let current = '';
+          sections.forEach(section => {
+            const sectionTop = section.offsetTop;
+            if (scrollY >= sectionTop - 100) current = section.getAttribute('id');
+          });
+          navLinks.forEach(link => {
+            link.classList.remove('is-active');
+            if (link.getAttribute('href') === `#${current}`) link.classList.add('is-active');
+          });
         });
-        navLinks.forEach(link => {
-          link.classList.remove('is-active');
-          if (link.getAttribute('href') === `#${current}`) link.classList.add('is-active');
-        });
-      });
+      }
 
       // 5. 回到顶部
-      document.getElementById('back-top').addEventListener('click', () => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      });
+      const backTopBtn = document.getElementById('back-top');
+      if (backTopBtn) {
+        backTopBtn.addEventListener('click', () => {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+      }
 
       // 6. 作品数据渲染与筛选
       const projects = [
@@ -483,6 +495,7 @@
       const modal = document.getElementById('project-modal');
 
       function renderProjects(filter = 'all') {
+        if (!grid) return;
         grid.innerHTML = '';
         const filtered = filter === 'all' ? projects : projects.filter(p => p.category === filter);
         filtered.forEach(p => {
@@ -498,68 +511,86 @@
               </span>
             </button>
           `;
-          li.querySelector('button').addEventListener('click', () => openModal(p));
+          // 因为用户代码里没有完整的 Modal HTML，为了防止点击报错，这里做个安全判断
+          li.querySelector('button').addEventListener('click', () => {
+             if (modal) {
+                 document.getElementById('modal-title').textContent = p.title;
+                 document.getElementById('modal-emoji').textContent = p.emoji;
+                 document.getElementById('modal-desc').textContent = p.desc;
+                 document.getElementById('modal-tags').innerHTML = p.tags.map(t => `<li class="tag">${t}</li>`).join('');
+                 modal.showModal();
+             }
+          });
           grid.appendChild(li);
         });
       }
 
-      function openModal(p) {
-        document.getElementById('modal-title').textContent = p.title;
-        document.getElementById('modal-emoji').textContent = p.emoji;
-        document.getElementById('modal-desc').textContent = p.desc;
-        document.getElementById('modal-tags').innerHTML = p.tags.map(t => `<li class="tag">${t}</li>`).join('');
-        modal.showModal();
+      // 关闭模态框
+      if (modal) {
+        const closeBtn = document.querySelector('.project-modal__close');
+        if (closeBtn) closeBtn.addEventListener('click', () => modal.close());
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) modal.close();
+        });
       }
 
-      // 关闭模态框
-      document.querySelector('.project-modal__close').addEventListener('click', () => modal.close());
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.close();
-      });
-
       // 筛选点击
-      filterBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-          filterBtns.forEach(b => b.classList.remove('is-active'));
-          btn.classList.add('is-active');
-          renderProjects(btn.dataset.filter);
+      if (filterBtns.length > 0) {
+        filterBtns.forEach(btn => {
+          btn.addEventListener('click', () => {
+            filterBtns.forEach(b => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            renderProjects(btn.dataset.filter);
+          });
         });
-      });
+      }
 
       renderProjects();
 
       // 7. 表单校验模拟
       const form = document.getElementById('contact-form');
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        let valid = true;
-        const name = document.getElementById('field-name');
-        const email = document.getElementById('field-email');
-        const msg = document.getElementById('field-message');
-        
-        document.querySelectorAll('.field__error').forEach(el => el.textContent = '');
-        
-        if (!name.value.trim()) { document.getElementById('err-name').textContent = '请填写称呼'; valid = false; }
-        if (!email.value.trim() || !/^\S+@\S+\.\S+$/.test(email.value)) { document.getElementById('err-email').textContent = '请填写有效的邮箱'; valid = false; }
-        if (!msg.value.trim()) { document.getElementById('err-message').textContent = '请填写留言'; valid = false; }
-        
-        if (valid) {
-          document.getElementById('form-status').textContent = '发送成功！我会尽快联系你。（演示状态）';
-          form.reset();
-          setTimeout(() => document.getElementById('form-status').textContent = '', 5000);
-        }
-      });
-
-      // 8. 滚动动画
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('is-visible');
-            observer.unobserve(entry.target);
+      if (form) {
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          let valid = true;
+          const name = document.getElementById('field-name');
+          const email = document.getElementById('field-email');
+          const msg = document.getElementById('field-message');
+          
+          document.querySelectorAll('.field__error').forEach(el => el.textContent = '');
+          
+          if (!name.value.trim()) { document.getElementById('err-name').textContent = '请填写称呼'; valid = false; }
+          if (!email.value.trim() || !/^\S+@\S+\.\S+$/.test(email.value)) { document.getElementById('err-email').textContent = '请填写有效的邮箱'; valid = false; }
+          if (!msg.value.trim()) { document.getElementById('err-message').textContent = '请填写留言'; valid = false; }
+          
+          if (valid) {
+            document.getElementById('form-status').textContent = '发送成功！我会尽快联系你。（演示状态）';
+            form.reset();
+            setTimeout(() => document.getElementById('form-status').textContent = '', 5000);
           }
         });
-      }, { threshold: 0.1 });
-      document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+      }
+
+      // 8. 滚动动画（增加保护机制）
+      if ('IntersectionObserver' in window) {
+        try {
+          const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('is-visible');
+                observer.unobserve(entry.target);
+              }
+            });
+          }, { threshold: 0.05, rootMargin: '0px 0px -50px 0px' });
+          document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+        } catch (e) {
+          // 如果 IntersectionObserver 报错，直接显示所有内容
+          document.querySelectorAll('.reveal').forEach(el => el.classList.add('is-visible'));
+        }
+      } else {
+        // 如果浏览器不支持，直接显示所有内容
+        document.querySelectorAll('.reveal').forEach(el => el.classList.add('is-visible'));
+      }
     });
   </script>
 </body>
